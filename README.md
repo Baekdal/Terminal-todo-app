@@ -1,4 +1,4 @@
-# Terminal Todo App
+# Terminal To-do App
 
 A fast, feature-rich terminal-based todo application built with Python and curses. Manage your tasks efficiently with grouping, priorities, collapsible sections, and multi-session support.
 
