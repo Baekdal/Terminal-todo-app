@@ -37,7 +37,7 @@ A fast, feature-rich terminal-based todo application built with Python and curse
 - Linux/macOS (uses curses, which is built-in)
 - For Windows: `pip install windows-curses`
 
-### Setup
+### Setup (optional)
 
 4. **Create an alias for easy access:**
    
