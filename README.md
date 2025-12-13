@@ -194,13 +194,6 @@ You can backup or version control this file easily.
 ### File conflicts with multiple sessions
 - The app handles this automatically - just reload if you see unexpected behavior
 
-## Contributing
-
-Contributions are welcome! Feel free to:
-- Report bugs
-- Suggest features
-- Submit pull requests
-
 ## License
 
 MIT License - feel free to use and modify as needed.
