@@ -133,7 +133,10 @@ def main(stdscr):
     curses.curs_set(1)  # Show cursor
     stdscr.keypad(True)  # Enable special keys
     stdscr.timeout(500)  # Non-blocking getch with 500ms timeout for auto-refresh
-    curses.set_escdelay(25)  # Reduce ESC key delay to 25ms
+    
+    # Set ESC key delay (only available in Python 3.9+)
+    if hasattr(curses, 'set_escdelay'):
+        curses.set_escdelay(25)  # Reduce ESC key delay to 25ms
     
     # Initialize colors
     curses.start_color()
@@ -524,23 +527,15 @@ def main(stdscr):
                 for todo in todos:
                     if todo.get('id') == editing_id:
                         original_task = todo['task']
-                        # Preserve priority prefix
+                        # Preserve priority prefix only
                         priority_prefix = ''
                         if original_task.startswith('!! '):
                             priority_prefix = '!! '
                         elif original_task.startswith('! '):
                             priority_prefix = '! '
                         
-                        # Preserve group prefix (text before colon)
-                        group_prefix = ''
-                        clean_original = original_task
-                        if priority_prefix:
-                            clean_original = original_task[len(priority_prefix):]
-                        if ':' in clean_original:
-                            group_prefix = clean_original.split(':', 1)[0] + ': '
-                        
-                        # Update with preserved prefixes
-                        todo['task'] = priority_prefix + group_prefix + input_text.strip()
+                        # Update with priority prefix + edited text (which includes group if any)
+                        todo['task'] = priority_prefix + input_text.strip()
                         break
                 save_todos(todos)
                 just_saved = True
@@ -803,14 +798,12 @@ def main(stdscr):
                 for todo in todos:
                     if todo.get('id') == selected_id:
                         task = todo['task']
-                        # Remove priority prefix for editing
+                        # Remove priority prefix for editing (priorities are set via 1/2/0 keys)
                         if task.startswith('!! '):
                             task = task[3:]
                         elif task.startswith('! '):
                             task = task[2:]
-                        # Remove group prefix (text before colon) for editing
-                        if ':' in task:
-                            task = task.split(':', 1)[1].strip()
+                        # Keep group prefix - user may want to edit it
                         # Populate input field
                         input_text = task
                         cursor_pos = len(input_text)
