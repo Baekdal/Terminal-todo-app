@@ -56,11 +56,11 @@ Now you can launch the app from anywhere by simply typing `todo`!
 
 ### Quick Start
 
-Launch the app (without using an alias:
+Launch the app (without using an alias):
 ```bash
 python3 todo
 ```
-Launch the app:
+Launch the app (with an alias):
 ```bash
 todo
 ```
