@@ -61,7 +61,7 @@ Now you can launch the app from anywhere by simply typing `todo`!
 
 Launch the app (without using an alias):
 ```bash
-python3 todo
+python3 todo.py
 ```
 Launch the app (with an alias):
 ```bash
