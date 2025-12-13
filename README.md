@@ -5,6 +5,9 @@ A fast, feature-rich terminal-based todo application built with Python and curse
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.7%2B-blue.svg)
 
+![Screenshot](todo-screenshot.png)
+
+
 ## Features
 
 ### Core Functionality
