@@ -41,40 +41,85 @@ def save_todos(todos):
     
     # Sort by group for consistent display order
     def get_sort_key(todo):
-        task = todo['task']
-        # Remove priority prefix for sorting
-        if task.startswith('!! '):
-            task = task[3:]
-        elif task.startswith('! '):
-            task = task[2:]
+        # Parse and remove priority prefix
+        _, _, _, clean_task = parse_priority_prefix(todo['task'])
         
         # Extract group prefix (text before colon)
-        if ':' in task:
-            group = task.split(':', 1)[0].strip()
-            suffix = task.split(':', 1)[1].strip()
+        if ':' in clean_task:
+            group = clean_task.split(':', 1)[0].strip()
+            suffix = clean_task.split(':', 1)[1].strip()
             # Sort by: group name, then task within group
             return (0, group.lower(), suffix.lower())
         else:
             # Ungrouped items sort last
-            return (1, '', task.lower())
+            return (1, '', clean_task.lower())
     
     merged.sort(key=get_sort_key)
     
     with open(TODO_FILE, 'w') as f:
         json.dump(merged, f, indent=2)
 
+def parse_priority_prefix(task):
+    """Parse priority and modifiers from task
+    Returns: (priority, bold, italic, clean_task)
+    """
+    priority = 0
+    bold = False
+    italic = False
+    clean_task = task
+    
+    if task.startswith('!') and len(task) > 1:
+        end_idx = task.find(' ', 1)
+        if end_idx > 0:
+            marker = task[1:end_idx]
+            # Check if marker is not empty
+            if len(marker) > 0 and marker[0].isdigit():
+                priority = int(marker[0])
+                if 'b' in marker:
+                    bold = True
+                if 'i' in marker:
+                    italic = True
+                clean_task = task[end_idx+1:]
+            # Backward compatibility: ! = priority 1, !! = priority 2
+            elif marker == '':
+                # This is the old "! " format
+                priority = 1
+                clean_task = task[2:]
+            elif marker == '!':
+                # This is the old "!! " format
+                priority = 2
+                clean_task = task[3:]
+    
+    return priority, bold, italic, clean_task
+
+def build_priority_prefix(priority, bold, italic):
+    """Build priority prefix from components
+    Returns: prefix string (with trailing space) or empty string
+    """
+    if priority == 0 and not bold and not italic:
+        return ''
+    
+    prefix = '!'
+    if priority > 0:
+        prefix += str(priority)
+    else:
+        prefix += '0'
+    
+    if bold:
+        prefix += 'b'
+    if italic:
+        prefix += 'i'
+    
+    return prefix + ' '
+
 def get_todo_group(todo):
     """Get the group name for a todo item"""
-    task = todo['task']
-    # Remove priority prefix
-    if task.startswith('!! '):
-        task = task[3:]
-    elif task.startswith('! '):
-        task = task[2:]
+    # Parse and remove priority/style prefix
+    _, _, _, clean_task = parse_priority_prefix(todo['task'])
     
     # Extract group prefix (text before colon)
-    if ':' in task:
-        return task.split(':', 1)[0].strip()
+    if ':' in clean_task:
+        return clean_task.split(':', 1)[0].strip()
     return '__ungrouped__'
 
 def build_selectable_items(todos, collapsed_groups, hide_completed=False):
@@ -90,16 +135,8 @@ def build_selectable_items(todos, collapsed_groups, hide_completed=False):
         if hide_completed and todo.get('done', False):
             continue
             
-        task = todo['task']
-        # Extract priority first
-        priority = 0
-        clean_task = task
-        if task.startswith('!! '):
-            priority = 2
-            clean_task = task[3:]
-        elif task.startswith('! '):
-            priority = 1
-            clean_task = task[2:]
+        # Parse priority
+        priority, _, _, clean_task = parse_priority_prefix(todo['task'])
         
         if ':' in clean_task:
             prefix = clean_task.split(':', 1)[0].strip()
@@ -140,9 +177,13 @@ def main(stdscr):
     
     # Initialize colors
     curses.start_color()
-    curses.init_pair(1, 11, curses.COLOR_BLACK)  # ! prefix - bright yellow
-    curses.init_pair(2, 9, curses.COLOR_BLACK)   # !! prefix - bright red
-    curses.init_pair(3, 8, curses.COLOR_BLACK)   # completed - bright black (gray)
+    curses.init_pair(1, 226, curses.COLOR_BLACK)  # !1 - bright yellow (was 11)
+    curses.init_pair(2, 196, curses.COLOR_BLACK)  # !2 - bright red (was 9)
+    curses.init_pair(3, 46, curses.COLOR_BLACK)   # !3 - bright green (was 10)
+    curses.init_pair(4, 39, curses.COLOR_BLACK)   # !4 - bright blue (was 12)
+    curses.init_pair(5, 201, curses.COLOR_BLACK)  # !5 - bright magenta (was 13)
+    curses.init_pair(6, 51, curses.COLOR_BLACK)   # !6 - bright cyan (was 14)
+    curses.init_pair(7, 8, curses.COLOR_BLACK)    # completed - bright black (gray)
     
     todos = load_todos()
     last_mtime = get_file_mtime()
@@ -219,10 +260,17 @@ def main(stdscr):
                 "  Del/Backsp  - Delete selected todo",
                 "  F2          - Edit selected todo",
                 "",
-                "PRIORITIES:",
-                "  1           - Toggle yellow priority",
-                "  2           - Toggle red priority",
-                "  0           - Remove priority",
+                "COLORS (press same key again to remove):",
+                "  1           - Yellow",
+                "  2           - Red",
+                "  3           - Green",
+                "  4           - Blue",
+                "  5           - Magenta",
+                "  6           - Cyan",
+                "",
+                "TEXT STYLES:",
+                "  7           - Toggle bold",
+                "  8           - Toggle italic",
                 "",
                 "GROUPS:",
                 "  Format: 'Group: task text' to create grouped items",
@@ -270,17 +318,8 @@ def main(stdscr):
             if hide_completed and todo.get('done', False):
                 continue
                 
-            task = todo['task']
-            
-            # Extract priority first
-            priority = 0
-            clean_task = task
-            if task.startswith('!! '):
-                priority = 2
-                clean_task = task[3:]
-            elif task.startswith('! '):
-                priority = 1
-                clean_task = task[2:]
+            # Parse priority and style modifiers
+            priority, bold, italic, clean_task = parse_priority_prefix(todo['task'])
             
             if ':' in clean_task:
                 prefix = clean_task.split(':', 1)[0].strip()
@@ -288,14 +327,14 @@ def main(stdscr):
                 if prefix not in groups:
                     groups[prefix] = []
                     group_order.append(prefix)
-                groups[prefix].append((i, suffix, todo['done'], priority))
+                groups[prefix].append((i, suffix, todo['done'], priority, bold, italic))
                 todo_to_group[i] = prefix
             else:
                 # Ungrouped item
                 if '__ungrouped__' not in groups:
                     groups['__ungrouped__'] = []
                     group_order.append('__ungrouped__')
-                groups['__ungrouped__'].append((i, clean_task, todo['done'], priority))
+                groups['__ungrouped__'].append((i, clean_task, todo['done'], priority, bold, italic))
                 todo_to_group[i] = '__ungrouped__'
         
         # Draw todos with grouping
@@ -323,10 +362,10 @@ def main(stdscr):
                     continue
             
             # Draw items in group
-            for idx, (todo_idx, task_text, is_done, priority) in enumerate(group_items):
+            for idx, (todo_idx, task_text, is_done, priority, bold, italic) in enumerate(group_items):
                 # Use priority extracted during grouping, but override with gray if completed
                 if is_done:
-                    color_pair = 3  # Gray for completed
+                    color_pair = 7  # Gray for completed
                 else:
                     color_pair = priority
                 display_text = task_text
@@ -357,6 +396,10 @@ def main(stdscr):
                 attr = curses.A_REVERSE if (selected_type == 'todo' and todo_idx == selected and len(todos) > 0 and not input_mode) else 0
                 if color_pair > 0:
                     attr |= curses.color_pair(color_pair)
+                if bold:
+                    attr |= curses.A_BOLD
+                if italic:
+                    attr |= curses.A_ITALIC
                 stdscr.addstr(current_row, 2, first_line, attr)
                 current_row += 1
                 
@@ -369,6 +412,10 @@ def main(stdscr):
                     attr = curses.A_REVERSE if (selected_type == 'todo' and todo_idx == selected and len(todos) > 0 and not input_mode) else 0
                     if color_pair > 0:
                         attr |= curses.color_pair(color_pair)
+                    if bold:
+                        attr |= curses.A_BOLD
+                    if italic:
+                        attr |= curses.A_ITALIC
                     stdscr.addstr(current_row, 2, indent + line, attr)
                     current_row += 1
         
@@ -526,16 +573,10 @@ def main(stdscr):
                 todos = load_todos()
                 for todo in todos:
                     if todo.get('id') == editing_id:
-                        original_task = todo['task']
-                        # Preserve priority prefix only
-                        priority_prefix = ''
-                        if original_task.startswith('!! '):
-                            priority_prefix = '!! '
-                        elif original_task.startswith('! '):
-                            priority_prefix = '! '
-                        
-                        # Update with priority prefix + edited text (which includes group if any)
-                        todo['task'] = priority_prefix + input_text.strip()
+                        # Parse original priority and styles
+                        priority, bold, italic, _ = parse_priority_prefix(todo['task'])
+                        # Update with preserved priority/styles + edited text
+                        todo['task'] = build_priority_prefix(priority, bold, italic) + input_text.strip()
                         break
                 save_todos(todos)
                 just_saved = True
@@ -653,58 +694,143 @@ def main(stdscr):
                         selected_id = None
         
         elif key == ord('1') and not input_text and not input_mode and selected_type == 'todo':
-            # Set/toggle priority to yellow (!)
+            # Toggle priority 1 (yellow)
             if todos and len(todos) > 0:
-                # Reload to get latest
                 todos = load_todos()
-                # Find and update the item by ID
                 for todo in todos:
                     if todo.get('id') == selected_id:
-                        task = todo['task']
-                        # Check if already yellow - if so, remove priority
-                        if task.startswith('! '):
-                            todo['task'] = task[2:]
-                        else:
-                            # Remove other priority prefix if present
-                            if task.startswith('!! '):
-                                task = task[3:]
-                            # Add yellow priority
-                            todo['task'] = f"! {task}"
+                        priority, bold, italic, clean_task = parse_priority_prefix(todo['task'])
+                        # Toggle priority 1
+                        new_priority = 0 if priority == 1 else 1
+                        todo['task'] = build_priority_prefix(new_priority, bold, italic) + clean_task
                         break
                 save_todos(todos)
                 just_saved = True
-                # Reload to maintain consistency
                 todos = load_todos()
-                # Find item after reload
                 for i, todo in enumerate(todos):
                     if todo.get('id') == selected_id:
                         selected = i
                         break
         
         elif key == ord('2') and not input_text and not input_mode and selected_type == 'todo':
-            # Set/toggle priority to red (!!)
+            # Toggle priority 2 (red)
             if todos and len(todos) > 0:
-                # Reload to get latest
                 todos = load_todos()
-                # Find and update the item by ID
                 for todo in todos:
                     if todo.get('id') == selected_id:
-                        task = todo['task']
-                        # Check if already red - if so, remove priority
-                        if task.startswith('!! '):
-                            todo['task'] = task[3:]
-                        else:
-                            # Remove other priority prefix if present
-                            if task.startswith('! '):
-                                task = task[2:]
-                            # Add red priority
-                            todo['task'] = f"!! {task}"
+                        priority, bold, italic, clean_task = parse_priority_prefix(todo['task'])
+                        new_priority = 0 if priority == 2 else 2
+                        todo['task'] = build_priority_prefix(new_priority, bold, italic) + clean_task
                         break
                 save_todos(todos)
                 just_saved = True
-                # Reload to maintain consistency
                 todos = load_todos()
-                # Find item after reload
+                for i, todo in enumerate(todos):
+                    if todo.get('id') == selected_id:
+                        selected = i
+                        break
+        
+        elif key == ord('3') and not input_text and not input_mode and selected_type == 'todo':
+            # Toggle priority 3 (green)
+            if todos and len(todos) > 0:
+                todos = load_todos()
+                for todo in todos:
+                    if todo.get('id') == selected_id:
+                        priority, bold, italic, clean_task = parse_priority_prefix(todo['task'])
+                        new_priority = 0 if priority == 3 else 3
+                        todo['task'] = build_priority_prefix(new_priority, bold, italic) + clean_task
+                        break
+                save_todos(todos)
+                just_saved = True
+                todos = load_todos()
+                for i, todo in enumerate(todos):
+                    if todo.get('id') == selected_id:
+                        selected = i
+                        break
+        
+        elif key == ord('4') and not input_text and not input_mode and selected_type == 'todo':
+            # Toggle priority 4 (blue)
+            if todos and len(todos) > 0:
+                todos = load_todos()
+                for todo in todos:
+                    if todo.get('id') == selected_id:
+                        priority, bold, italic, clean_task = parse_priority_prefix(todo['task'])
+                        new_priority = 0 if priority == 4 else 4
+                        todo['task'] = build_priority_prefix(new_priority, bold, italic) + clean_task
+                        break
+                save_todos(todos)
+                just_saved = True
+                todos = load_todos()
+                for i, todo in enumerate(todos):
+                    if todo.get('id') == selected_id:
+                        selected = i
+                        break
+        
+        elif key == ord('5') and not input_text and not input_mode and selected_type == 'todo':
+            # Toggle priority 5 (magenta)
+            if todos and len(todos) > 0:
+                todos = load_todos()
+                for todo in todos:
+                    if todo.get('id') == selected_id:
+                        priority, bold, italic, clean_task = parse_priority_prefix(todo['task'])
+                        new_priority = 0 if priority == 5 else 5
+                        todo['task'] = build_priority_prefix(new_priority, bold, italic) + clean_task
+                        break
+                save_todos(todos)
+                just_saved = True
+                todos = load_todos()
+                for i, todo in enumerate(todos):
+                    if todo.get('id') == selected_id:
+                        selected = i
+                        break
+        
+        elif key == ord('6') and not input_text and not input_mode and selected_type == 'todo':
+            # Toggle priority 6 (cyan)
+            if todos and len(todos) > 0:
+                todos = load_todos()
+                for todo in todos:
+                    if todo.get('id') == selected_id:
+                        priority, bold, italic, clean_task = parse_priority_prefix(todo['task'])
+                        new_priority = 0 if priority == 6 else 6
+                        todo['task'] = build_priority_prefix(new_priority, bold, italic) + clean_task
+                        break
+                save_todos(todos)
+                just_saved = True
+                todos = load_todos()
+                for i, todo in enumerate(todos):
+                    if todo.get('id') == selected_id:
+                        selected = i
+                        break
+        
+        elif key == ord('7') and not input_text and not input_mode and selected_type == 'todo':
+            # Toggle bold
+            if todos and len(todos) > 0:
+                todos = load_todos()
+                for todo in todos:
+                    if todo.get('id') == selected_id:
+                        priority, bold, italic, clean_task = parse_priority_prefix(todo['task'])
+                        todo['task'] = build_priority_prefix(priority, not bold, italic) + clean_task
+                        break
+                save_todos(todos)
+                just_saved = True
+                todos = load_todos()
+                for i, todo in enumerate(todos):
+                    if todo.get('id') == selected_id:
+                        selected = i
+                        break
+        
+        elif key == ord('8') and not input_text and not input_mode and selected_type == 'todo':
+            # Toggle italic
+            if todos and len(todos) > 0:
+                todos = load_todos()
+                for todo in todos:
+                    if todo.get('id') == selected_id:
+                        priority, bold, italic, clean_task = parse_priority_prefix(todo['task'])
+                        todo['task'] = build_priority_prefix(priority, bold, not italic) + clean_task
+                        break
+                save_todos(todos)
+                just_saved = True
+                todos = load_todos()
                 for i, todo in enumerate(todos):
                     if todo.get('id') == selected_id:
                         selected = i
@@ -797,15 +923,10 @@ def main(stdscr):
                 # Find the selected todo by ID
                 for todo in todos:
                     if todo.get('id') == selected_id:
-                        task = todo['task']
-                        # Remove priority prefix for editing (priorities are set via 1/2/0 keys)
-                        if task.startswith('!! '):
-                            task = task[3:]
-                        elif task.startswith('! '):
-                            task = task[2:]
-                        # Keep group prefix - user may want to edit it
-                        # Populate input field
-                        input_text = task
+                        # Parse and remove priority/style prefix for editing
+                        priority, bold, italic, clean_task = parse_priority_prefix(todo['task'])
+                        # Populate input field with clean task (including group if present)
+                        input_text = clean_task
                         cursor_pos = len(input_text)
                         editing_id = selected_id
                         input_mode = True
