@@ -203,6 +203,7 @@ def main(stdscr):
     collapsed_groups = set()  # Track which groups are collapsed
     show_help = False  # Track if help screen is displayed
     hide_completed = False  # Track if completed items should be hidden
+    scroll_offset = 0  # Track vertical scroll position
     
     while True:
         # Check if file was modified by another session
@@ -341,38 +342,38 @@ def main(stdscr):
         start_row = 3
         current_row = start_row
         
+        # Calculate available display height (leave room for input area at bottom)
+        input_area_height = 6  # Input area takes 6 lines
+        max_display_row = height - input_area_height
+        
+        # Build display items with their line positions
+        display_items = []  # List of (item_type, item_data, line_number)
+        line_num = 0
+        
         for group_name in group_order:
             group_items = groups[group_name]
             
             if group_name != '__ungrouped__':
-                # Draw group header
+                # Group header
                 if group_name in collapsed_groups:
-                    # Show collapsed indicator with item count
-                    header = f"{group_name}: [{len(group_items)} items] ▶"
-                    # Highlight if this group is selected
-                    attr = curses.A_REVERSE if (selected_type == 'group' and selected_group == group_name and not input_mode) else 0
-                    stdscr.addstr(current_row, 2, header, curses.A_BOLD | attr)
-                else:
-                    header = f"{group_name}:"
-                    stdscr.addstr(current_row, 2, header, curses.A_BOLD)
-                current_row += 1
-                
-                # Skip drawing items if group is collapsed
-                if group_name in collapsed_groups:
+                    display_items.append(('group_header', group_name, line_num))
+                    line_num += 1
                     continue
+                else:
+                    display_items.append(('group_header', group_name, line_num))
+                    line_num += 1
             
-            # Draw items in group
+            # Items in group
             for idx, (todo_idx, task_text, is_done, priority, bold, italic) in enumerate(group_items):
-                # Use priority extracted during grouping, but override with gray if completed
+                # Calculate wrapped lines
                 if is_done:
-                    color_pair = 7  # Gray for completed
+                    color_pair = 7
                 else:
                     color_pair = priority
                 display_text = task_text
                 
                 checkbox = '☒' if is_done else '☐'
                 
-                # Determine tree character
                 if group_name != '__ungrouped__':
                     if idx == len(group_items) - 1:
                         tree_char = "└"
@@ -382,33 +383,85 @@ def main(stdscr):
                 else:
                     prefix = f"{checkbox} "
                 
-                # Calculate available width for text
                 available_width = width - len(prefix) - 4
                 
-                # Wrap text if needed
                 if len(display_text) > available_width:
                     wrapped_lines = textwrap.wrap(display_text, width=available_width)
                 else:
                     wrapped_lines = [display_text]
                 
-                # Draw first line
-                first_line = prefix + wrapped_lines[0]
-                attr = curses.A_REVERSE if (selected_type == 'todo' and todo_idx == selected and len(todos) > 0 and not input_mode) else 0
-                if color_pair > 0:
-                    attr |= curses.color_pair(color_pair)
-                if bold:
-                    attr |= curses.A_BOLD
-                if italic:
-                    attr |= curses.A_ITALIC
-                stdscr.addstr(current_row, 2, first_line, attr)
+                # Store item with its starting line number and wrapped line count
+                display_items.append(('todo', (todo_idx, prefix, wrapped_lines, color_pair, bold, italic, group_name), line_num))
+                line_num += len(wrapped_lines)
+        
+        # Find selected item's line number
+        selected_line = 0
+        for item_type, item_data, item_line in display_items:
+            if item_type == 'group_header' and selected_type == 'group' and item_data == selected_group:
+                selected_line = item_line
+                break
+            elif item_type == 'todo':
+                todo_idx = item_data[0]
+                if selected_type == 'todo' and selected_id == todos[todo_idx].get('id'):
+                    selected_line = item_line
+                    break
+        
+        # Adjust scroll_offset to keep selected item visible
+        visible_lines = max_display_row - start_row
+        if selected_line < scroll_offset:
+            scroll_offset = selected_line
+        elif selected_line >= scroll_offset + visible_lines:
+            scroll_offset = selected_line - visible_lines + 1
+        
+        # Render visible items
+        for item_type, item_data, item_line in display_items:
+            if item_line < scroll_offset:
+                continue
+            if current_row >= max_display_row:
+                break
+            
+            lines_to_skip = scroll_offset - item_line
+            if lines_to_skip < 0:
+                lines_to_skip = 0
+            
+            if item_type == 'group_header':
+                group_name = item_data
+                if group_name in collapsed_groups:
+                    header = f"{group_name}: [{len(groups[group_name])} items] ▶"
+                else:
+                    header = f"{group_name}:"
+                attr = curses.A_REVERSE if (selected_type == 'group' and selected_group == group_name and not input_mode) else 0
+                stdscr.addstr(current_row, 2, header, curses.A_BOLD | attr)
                 current_row += 1
+            
+            elif item_type == 'todo':
+                todo_idx, prefix, wrapped_lines, color_pair, bold, italic, group_name = item_data
                 
-                # Draw remaining wrapped lines (indented)
-                for line in wrapped_lines[1:]:
-                    if group_name != '__ungrouped__':
-                        indent = "     "  # Align with text after tree char and checkbox
+                # Skip lines if we're partially scrolled past this item
+                visible_wrapped_lines = wrapped_lines[lines_to_skip:]
+                
+                for line_idx, line in enumerate(visible_wrapped_lines):
+                    if current_row >= max_display_row:
+                        break
+                    
+                    if line_idx == 0 and lines_to_skip == 0:
+                        # First line with prefix
+                        first_line = prefix + line
+                    elif line_idx == 0:
+                        # First visible line but not first line of item
+                        if group_name != '__ungrouped__':
+                            indent = "     "
+                        else:
+                            indent = "   "
+                        first_line = indent + line
                     else:
-                        indent = "   "
+                        # Continuation lines
+                        if group_name != '__ungrouped__':
+                            indent = "     "
+                        else:
+                            indent = "   "
+                        first_line = indent + line
+                    
                     attr = curses.A_REVERSE if (selected_type == 'todo' and todo_idx == selected and len(todos) > 0 and not input_mode) else 0
                     if color_pair > 0:
                         attr |= curses.color_pair(color_pair)
@@ -416,7 +469,7 @@ def main(stdscr):
                         attr |= curses.A_BOLD
                     if italic:
                         attr |= curses.A_ITALIC
-                    stdscr.addstr(current_row, 2, indent + line, attr)
+                    stdscr.addstr(current_row, 2, first_line, attr)
                     current_row += 1
         
         # Draw input field at bottom
